@@ -74,7 +74,7 @@ def main():
         min_tracking_confidence=min_tracking_confidence,
     )
 
-    # テーマ画像ロード
+    # テーマ画像読み込み
     #############################################################
     theme_images = []
     no_theme = 0
@@ -86,6 +86,16 @@ def main():
         with open(file_path, 'rb') as file:
             image_pk = pickle.load(file)
             theme_images.append(image_pk)
+    
+    # prev画像読み込み
+    #############################################################
+    prev_default_path = r'F:\App\Pictogram\img\photo_no_image.jpg.pickle'
+    with open(prev_default_path, 'rb') as file:
+        prev_default = pickle.load(file)
+    prev_default = cv.resize(prev_default,None,fx=0.20,fy=0.20)
+
+    prev_images = [[] * 3 for _ in range(len(theme_images))]
+    
 
     # FPS計測モジュール ########################################################
     cvFpsCalc = CvFpsCalc(buffer_len=10)
@@ -108,9 +118,11 @@ def main():
         image = cv.flip(image, 1)  # ミラー表示
         debug_image01 = copy.deepcopy(image)
         debug_image02 = np.zeros((image.shape[0], image.shape[1], 3), np.uint8)
-        cv.rectangle(debug_image02, (0, 0), (image.shape[1], image.shape[0]),
-                    bg_color,
-                    thickness=-1)
+        cv.rectangle(debug_image02, 
+                     (0, 0), 
+                     (image.shape[1], image.shape[0]), 
+                     bg_color, 
+                     thickness=-1)
 
         # 検出実施 #############################################################
         image = cv.cvtColor(image, cv.COLOR_BGR2RGB)
@@ -133,35 +145,49 @@ def main():
         main_palette = np.zeros((image.shape[0], image.shape[1], 3), np.uint8)
         camera_palette = cv.resize(debug_image01,None,fx=0.20,fy=0.20)
         
-        cv.putText(debug_image02, "FPS:" + str(display_fps), (10, 30),
-                   cv.FONT_HERSHEY_SIMPLEX, 1.0, color, 2, cv.LINE_AA)
+        cv.putText(debug_image02, 
+                   text="FPS:" + str(display_fps), 
+                   org=(10,  image.shape[0]-30),
+                   fontFace=cv.FONT_HERSHEY_SIMPLEX, 
+                   fontScale=1.0, 
+                   color=color, 
+                   thickness=2, 
+                   lineType=cv.LINE_AA)
         
 
         # キー処理(ESC：終了) #################################################
         key = cv.waitKey(1)
         if key == 27:  # ESC
+            print("Press ESC")
             break
-        elif key == 113: # LESS-THAN
+        elif key == 113: # q
             print("Press q, no_theme:",no_theme)
             no_theme = (no_theme + 1) if no_theme < 49 else 0
-        elif key == 101: # GREATER-THAN
+        elif key == 101: # e
             print("Press e, no_theme:",no_theme)
             no_theme = (no_theme - 1) if no_theme > -49 else 0
-            
+               
         elif key == 13:  # ENTER
             print("Press ENTER")            
-            
             #t=threading.Timer(5,print("wait 5 sec"))
             #t.start()
+            save_image = cv.resize(debug_image02,None,fx=0.20,fy=0.20)
+            
+            if len(prev_images[no_theme]) < 3:
+                prev_images[no_theme].append(save_image)
+            else:
+                prev_images[no_theme].pop(0)
+                prev_images[no_theme].append(save_image)
+            
 
-            prev_image = debug_image02
-
+        '''
             prev_image = cv2_putText(img=prev_image,
                         text = "前の人",
                         org = (300,50),
                         fontFace = "/System/Library/Fonts/ヒラギノ角ゴシック W6.ttc",
                         fontScale = 30,
                         color = (0,255,0))
+        '''
     
 
         # main画面合成 #########################################################
@@ -173,9 +199,18 @@ def main():
         main_palette[image.shape[0] - camera_palette.shape[0] - margin:image.shape[0] - margin, image.shape[1] - camera_palette.shape[1] - margin:image.shape[1] - margin] = camera_palette
         # theme
         main_palette[margin:theme_images[no_theme].shape[0] + margin, image.shape[1] - theme_images[no_theme].shape[1] - margin:image.shape[1] - margin] = theme_images[no_theme]
-
-
-
+        # prev image
+        default_shape = prev_default.shape
+        
+        for i in range(3):
+            if len(prev_images[no_theme]) > i:
+                image_shape = prev_images[no_theme][i].shape
+                main_palette[(image_shape[0] + margin) * i + margin: 
+                             (image_shape[0] + margin) * (i + 1), margin: 
+                             image_shape[1] + margin] = prev_images[no_theme][i]
+            else:
+                main_palette[(default_shape[0] + margin) * i + margin: (default_shape[0] + margin) * (i + 1), margin: default_shape[1] + margin] = prev_default
+        
 
         # 画面反映 #############################################################
         # cv.imshow('Tokyo2020 Debug', debug_image01)
