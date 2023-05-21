@@ -4,6 +4,8 @@ import copy
 import math
 import argparse
 import threading
+import pickle
+import os
 
 import cv2 as cv
 import numpy as np
@@ -60,6 +62,8 @@ def main():
     cap = cv.VideoCapture(cap_device)
     cap.set(cv.CAP_PROP_FRAME_WIDTH, cap_width)
     cap.set(cv.CAP_PROP_FRAME_HEIGHT, cap_height)
+    cap.set(cv.CAP_PROP_FOURCC, cv.VideoWriter_fourcc('M', 'J', 'P', 'G'))
+    cap.set(cv.CAP_PROP_FPS, 30)
 
     # モデルロード #############################################################
     mp_pose = mp.solutions.pose
@@ -69,6 +73,19 @@ def main():
         min_detection_confidence=min_detection_confidence,
         min_tracking_confidence=min_tracking_confidence,
     )
+
+    # テーマ画像ロード
+    #############################################################
+    theme_images = []
+    no_theme = 0
+    theme_folder_path = 'F:\App\Pictogram\img\_pickle'
+
+    for filename in os.listdir(theme_folder_path):
+        file_path = os.path.join(theme_folder_path, filename)
+    
+        with open(file_path, 'rb') as file:
+            image_pk = pickle.load(file)
+            theme_images.append(image_pk)
 
     # FPS計測モジュール ########################################################
     cvFpsCalc = CvFpsCalc(buffer_len=10)
@@ -113,10 +130,9 @@ def main():
                 bg_color=bg_color,
             )
 
+        main_palette = np.zeros((image.shape[0], image.shape[1], 3), np.uint8)
+        camera_palette = cv.resize(debug_image01,None,fx=0.20,fy=0.20)
         
-
-        cv.putText(debug_image01, "FPS:" + str(display_fps), (10, 30),
-                   cv.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 0), 2, cv.LINE_AA)
         cv.putText(debug_image02, "FPS:" + str(display_fps), (10, 30),
                    cv.FONT_HERSHEY_SIMPLEX, 1.0, color, 2, cv.LINE_AA)
         
@@ -125,28 +141,46 @@ def main():
         key = cv.waitKey(1)
         if key == 27:  # ESC
             break
-        elif key == 13:  # ENTER
-            print("ENTER")
+        elif key == 113: # LESS-THAN
+            print("Press q, no_theme:",no_theme)
+            no_theme = (no_theme + 1) if no_theme < 49 else 0
+        elif key == 101: # GREATER-THAN
+            print("Press e, no_theme:",no_theme)
+            no_theme = (no_theme - 1) if no_theme > -49 else 0
             
+        elif key == 13:  # ENTER
+            print("Press ENTER")            
             
             #t=threading.Timer(5,print("wait 5 sec"))
             #t.start()
-            
+
             prev_image = debug_image02
 
-            prev_image = cv2_putText_2(img=prev_image,
+            prev_image = cv2_putText(img=prev_image,
                         text = "前の人",
                         org = (300,50),
                         fontFace = "/System/Library/Fonts/ヒラギノ角ゴシック W6.ttc",
                         fontScale = 30,
                         color = (0,255,0))
     
-            cv.imshow('Prev Image', prev_image)       
+
+        # main画面合成 #########################################################
+        main_palette[0:debug_image02.shape[0], 0:debug_image02.shape[1]] = debug_image02
+
+        margin = 10
+
+        # camera
+        main_palette[image.shape[0] - camera_palette.shape[0] - margin:image.shape[0] - margin, image.shape[1] - camera_palette.shape[1] - margin:image.shape[1] - margin] = camera_palette
+        # theme
+        main_palette[margin:theme_images[no_theme].shape[0] + margin, image.shape[1] - theme_images[no_theme].shape[1] - margin:image.shape[1] - margin] = theme_images[no_theme]
+
+
 
 
         # 画面反映 #############################################################
-        cv.imshow('Tokyo2020 Debug', debug_image01)
-        cv.imshow('Tokyo2020 Pictogram', debug_image02)
+        # cv.imshow('Tokyo2020 Debug', debug_image01)
+        #cv.imshow('Tokyo2020 Pictogram', debug_image02)
+        cv.imshow('Pictogram', main_palette)
 
     cap.release()
     cv.destroyAllWindows()
@@ -164,7 +198,7 @@ def cv2pil(imgCV):
     imgPIL = Image.fromarray(imgCV_RGB)
     return imgPIL
 
-def cv2_putText_2(img, text, org, fontFace, fontScale, color):
+def cv2_putText(img, text, org, fontFace, fontScale, color):
     x, y = org
     b, g, r = color
     colorRGB = (r, g, b)
@@ -175,6 +209,12 @@ def cv2_putText_2(img, text, org, fontFace, fontScale, color):
     draw.text(xy = (x,y-h), text = text, fill = colorRGB, font = fontPIL)
     imgCV = pil2cv(imgPIL)
     return imgCV
+
+
+
+def pickle_load(path):
+    with open(path, mode='rb') as f:
+        return pickle.load(f)
 
 
 
