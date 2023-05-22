@@ -6,6 +6,7 @@ import argparse
 import threading
 import pickle
 import os
+import time
 
 import cv2 as cv
 import numpy as np
@@ -95,6 +96,8 @@ def main():
     prev_default = cv.resize(prev_default,None,fx=0.20,fy=0.20)
 
     prev_images = [[] * 3 for _ in range(len(theme_images))]
+
+    flag_push_key = False
     
 
     # FPS計測モジュール ########################################################
@@ -168,16 +171,9 @@ def main():
             no_theme = (no_theme - 1) if no_theme > -49 else 0
                
         elif key == 13:  # ENTER
-            print("Press ENTER")            
-            #t=threading.Timer(5,print("wait 5 sec"))
-            #t.start()
-            save_image = cv.resize(debug_image02,None,fx=0.20,fy=0.20)
-            
-            if len(prev_images[no_theme]) < 3:
-                prev_images[no_theme].append(save_image)
-            else:
-                prev_images[no_theme].pop(0)
-                prev_images[no_theme].append(save_image)
+            print("Press ENTER")
+            time_push_key13 = time.time()
+            flag_push_key = True
             
 
         '''
@@ -192,13 +188,58 @@ def main():
 
         # main画面合成 #########################################################
         main_palette[0:debug_image02.shape[0], 0:debug_image02.shape[1]] = debug_image02
+        
+        if(flag_push_key):
+
+            if time.time() - time_push_key13 < 5:
+                cv.putText(main_palette,
+                text= f'{5 - time.time() + time_push_key13:.1f}',
+                org=(10,  image.shape[0]-100),
+                fontFace=cv.FONT_HERSHEY_SIMPLEX,
+                fontScale=1.0,
+                color=(0, 255, 0),
+                thickness=2,
+                lineType=cv.LINE_AA)
+            else:
+                cv.putText(main_palette,
+                text= str(0),
+                org=(10,  image.shape[0]-100),
+                fontFace=cv.FONT_HERSHEY_SIMPLEX,
+                fontScale=1.0,
+                color=(0, 255, 0),
+                thickness=2,
+                lineType=cv.LINE_AA)
+
+            if time.time() - time_push_key13 > 5:
+                save_pose_image(debug_image02,prev_images,no_theme)
+                flag_push_key = False
+        
 
         margin = 10
 
         # camera
         main_palette[image.shape[0] - camera_palette.shape[0] - margin:image.shape[0] - margin, image.shape[1] - camera_palette.shape[1] - margin:image.shape[1] - margin] = camera_palette
         # theme
-        main_palette[margin:theme_images[no_theme].shape[0] + margin, image.shape[1] - theme_images[no_theme].shape[1] - margin:image.shape[1] - margin] = theme_images[no_theme]
+        main_palette[margin:theme_images[no_theme].shape[0] + margin, image.shape[1] - theme_images[no_theme].shape[1] - margin - 30:image.shape[1] - margin - 30] = theme_images[no_theme]
+
+        cv.putText(main_palette,
+                text= "next",
+                org=(image.shape[1] - margin - 80,  theme_images[no_theme].shape[0] + margin),
+                fontFace=cv.FONT_HERSHEY_SIMPLEX,
+                fontScale=1.0,
+                color=(0, 255, 0),
+                thickness=2,
+                lineType=cv.LINE_AA)
+        
+        cv.putText(main_palette,
+                text= "prev",
+                org=(image.shape[1] - margin - 250,  theme_images[no_theme].shape[0] + margin),
+                fontFace=cv.FONT_HERSHEY_SIMPLEX,
+                fontScale=1.0,
+                color=(0, 255, 0),
+                thickness=2,
+                lineType=cv.LINE_AA)
+
         # prev image
         default_shape = prev_default.shape
         
@@ -210,7 +251,7 @@ def main():
                              image_shape[1] + margin] = prev_images[no_theme][i]
             else:
                 main_palette[(default_shape[0] + margin) * i + margin: (default_shape[0] + margin) * (i + 1), margin: default_shape[1] + margin] = prev_default
-        
+
 
         # 画面反映 #############################################################
         # cv.imshow('Tokyo2020 Debug', debug_image01)
@@ -220,6 +261,38 @@ def main():
     cap.release()
     cv.destroyAllWindows()
 
+def save_pose_image(debug_image02,prev_images,no_theme):
+    print("5 sec later") 
+    save_image = cv.resize(debug_image02,None,fx=0.20,fy=0.20)
+    save_image_edge = draw_white_edge(img=save_image, 
+                                    band_width= 5, 
+                                    color= [0, 0, 0])
+    
+    if len(prev_images[no_theme]) < 3:
+        prev_images[no_theme].append(save_image_edge)
+    else:
+        prev_images[no_theme].pop(0)
+        prev_images[no_theme].append(save_image_edge)
+
+
+def draw_white_edge(img, band_width=10, color = [0, 0, 0]):
+    # Image is aligned in BGR order.
+    # color or Gray Scale
+    if len(img.shape) < 3:  # gray scale
+        img = cv.cvtColor(img, cv.COLOR_GRAY2BGR)
+    else:
+        pass
+
+    height, width, _ = img.shape[0], img.shape[1], img.shape[2]
+
+    img_test = img.copy()
+
+    img_test[height - band_width:height, :, :] = color
+    img_test[0: band_width, :, :] = color
+    img_test[:, 0:band_width, :] = color
+    img_test[:, width - band_width:width, :] = color
+
+    return img_test
 
 
 # OpenCVで日本語フォントを描写する #############################################################
@@ -228,10 +301,12 @@ def pil2cv(imgPIL):
     imgCV_BGR = np.array(imgPIL)[:, :, ::-1]
     return imgCV_BGR
 
+
 def cv2pil(imgCV):
     imgCV_RGB = imgCV[:, :, ::-1]
     imgPIL = Image.fromarray(imgCV_RGB)
     return imgPIL
+
 
 def cv2_putText(img, text, org, fontFace, fontScale, color):
     x, y = org
@@ -246,11 +321,9 @@ def cv2_putText(img, text, org, fontFace, fontScale, color):
     return imgCV
 
 
-
 def pickle_load(path):
     with open(path, mode='rb') as f:
         return pickle.load(f)
-
 
 
 def draw_stick_figure(
