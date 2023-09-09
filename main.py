@@ -7,11 +7,16 @@ import threading
 import pickle
 import os
 import time
+import logging
+import datetime
+import pandas as pd
+from keras.models import load_model
 
 import cv2 as cv
 import numpy as np
 import mediapipe as mp
 from PIL import Image, ImageDraw, ImageFont
+from playsound import playsound
 
 from utils import CvFpsCalc
 
@@ -45,6 +50,23 @@ def get_args():
 
 
 def main():
+    # フォント
+    ###########################################################################
+    font_path = "font/hiragino-kaku-gothic-std-w8.otf"
+    font_path_w6 = "font/ヒラギノ角ゴ ProN W6.otf"
+
+    # ログ設定
+    ###########################################################################
+    log_file = "log/"+str(datetime.date.today())+".txt"
+    if not log_file:
+        f = open(log_file, 'w')
+        f.write('')
+        f.close()
+    logging.basicConfig(filename = log_file,
+                        level    = logging.DEBUG,
+                        format   = " %(asctime)s - %(levelname)s - %(message)s "
+    )
+
     # 引数解析 #################################################################
     args = get_args()
 
@@ -75,25 +97,84 @@ def main():
         min_tracking_confidence=min_tracking_confidence,
     )
 
+    CLmodel = load_model('model/model.h5', compile=True)
+
+    landmark_names = [
+        'nose',
+        'left_eye_inner', 'left_eye', 'left_eye_outer',
+        'right_eye_inner', 'right_eye', 'right_eye_outer',
+        'left_ear', 'right_ear',
+        'mouth_left', 'mouth_right',
+        'left_shoulder', 'right_shoulder',
+        'left_elbow', 'right_elbow',
+        'left_wrist', 'right_wrist',
+        'left_pinky_1', 'right_pinky_1',
+        'left_index_1', 'right_index_1',
+        'left_thumb_2', 'right_thumb_2',
+        'left_hip', 'right_hip',
+        'left_knee', 'right_knee',
+        'left_ankle', 'right_ankle',
+        'left_heel', 'right_heel',
+        'left_foot_index', 'right_foot_index',
+    ]
+    class_names = ['Chair', 'Cobra', 'Dog', 'Tree', 'Warrior']
+    col_names = []
+    for i in range(33):
+        name = mp_pose.PoseLandmark(i).name
+        name_x = name + '_X'
+        name_y = name + '_Y'
+        name_z = name + '_Z'
+        name_v = name + '_V'
+        col_names.append(name_x)
+        col_names.append(name_y)
+        col_names.append(name_z)
+        col_names.append(name_v)
+
     # テーマ画像読み込み
     #############################################################
     theme_images = []
     no_theme = 0
-    theme_folder_path = 'F:\App\Pictogram\img\_pickle'
+    # theme_folder_path = 'F:\App\Pictogram\img\_pickle'
+    theme_folder_path = 'img/_pickle'
 
     for filename in os.listdir(theme_folder_path):
         file_path = os.path.join(theme_folder_path, filename)
     
         with open(file_path, 'rb') as file:
             image_pk = pickle.load(file)
-            theme_images.append(image_pk)
+            image_pk_edge = draw_white_edge(img=image_pk, 
+                                    band_width= 5, 
+                                    color= [0, 0, 0])
+            theme_images.append(image_pk_edge)
+
+    # ボタン画像読み込み
+    #############################################################
+    """
+    file_path_L = 'img/switch_pk/L.png.pickle'
+    with open(file_path_L, 'rb') as file:
+        btn_L_images = pickle.load(file)
+    file_path_left = 'img/switch_pk/left.png.pickle'
+    with open(file_path_left, 'rb') as file:
+        btn_left_images = pickle.load(file)
+    file_path_right = 'img/switch_pk/right.png.pickle'
+    with open(file_path_right, 'rb') as file:
+        btn_right_images = pickle.load(file)
+    """
+    
+    good_image = cv.imread("img/good.jpg")
+    good_image = cv.resize(good_image,None,fx=0.45,fy=0.45)
+    good_time = 0
     
     # prev画像読み込み
     #############################################################
-    prev_default_path = r'F:\App\Pictogram\img\photo_no_image.jpg.pickle'
+    # prev_default_path = r'F:\App\Pictogram\img\photo_no_image.jpg.pickle'
+    prev_default_path = r'img/photo_no_image.jpg.pickle'
+
+    per_resize = 0.15
+
     with open(prev_default_path, 'rb') as file:
         prev_default = pickle.load(file)
-    prev_default = cv.resize(prev_default,None,fx=0.20,fy=0.20)
+    prev_default = cv.resize(prev_default,None,fx=per_resize,fy=per_resize)
 
     prev_images = [[] * 3 for _ in range(len(theme_images))]
 
@@ -144,6 +225,17 @@ def main():
                 color=color,
                 bg_color=bg_color,
             )
+            
+            predict_name = predict_pose(
+                results.pose_landmarks,
+                landmark_names,
+                class_names,
+                col_names,
+                model=CLmodel,
+                torso_size_multiplier=2.5,
+                threshold=0.75,
+            )
+            print(predict_name)
 
         main_palette = np.zeros((image.shape[0], image.shape[1], 3), np.uint8)
         camera_palette = cv.resize(debug_image01,None,fx=0.20,fy=0.20)
@@ -152,7 +244,7 @@ def main():
                    text="FPS:" + str(display_fps), 
                    org=(10,  image.shape[0]-30),
                    fontFace=cv.FONT_HERSHEY_SIMPLEX, 
-                   fontScale=1.0, 
+                   fontScale=0.5, 
                    color=color, 
                    thickness=2, 
                    lineType=cv.LINE_AA)
@@ -165,80 +257,72 @@ def main():
             break
         elif key == 113: # q
             print("Press q, no_theme:",no_theme)
+            logging.debug("Press Q")
             no_theme = (no_theme + 1) if no_theme < 49 else 0
         elif key == 101: # e
             print("Press e, no_theme:",no_theme)
+            logging.debug("Press E")
             no_theme = (no_theme - 1) if no_theme > -49 else 0
                
         elif key == 13:  # ENTER
             print("Press ENTER")
+            logging.debug("Press ENTER >> カメラ撮影")
             time_push_key13 = time.time()
             flag_push_key = True
             
 
-        '''
-            prev_image = cv2_putText(img=prev_image,
-                        text = "前の人",
-                        org = (300,50),
-                        fontFace = "/System/Library/Fonts/ヒラギノ角ゴシック W6.ttc",
-                        fontScale = 30,
-                        color = (0,255,0))
-        '''
-    
-
         # main画面合成 #########################################################
         main_palette[0:debug_image02.shape[0], 0:debug_image02.shape[1]] = debug_image02
-        
-        if(flag_push_key):
-
-            if time.time() - time_push_key13 < 5:
-                cv.putText(main_palette,
-                text= f'{5 - time.time() + time_push_key13:.1f}',
-                org=(10,  image.shape[0]-100),
-                fontFace=cv.FONT_HERSHEY_SIMPLEX,
-                fontScale=1.0,
-                color=(0, 255, 0),
-                thickness=2,
-                lineType=cv.LINE_AA)
-            else:
-                cv.putText(main_palette,
-                text= str(0),
-                org=(10,  image.shape[0]-100),
-                fontFace=cv.FONT_HERSHEY_SIMPLEX,
-                fontScale=1.0,
-                color=(0, 255, 0),
-                thickness=2,
-                lineType=cv.LINE_AA)
-
-            if time.time() - time_push_key13 > 5:
-                save_pose_image(debug_image02,prev_images,no_theme)
-                flag_push_key = False
-        
 
         margin = 10
 
         # camera
         main_palette[image.shape[0] - camera_palette.shape[0] - margin:image.shape[0] - margin, image.shape[1] - camera_palette.shape[1] - margin:image.shape[1] - margin] = camera_palette
         # theme
-        main_palette[margin:theme_images[no_theme].shape[0] + margin, image.shape[1] - theme_images[no_theme].shape[1] - margin - 30:image.shape[1] - margin - 30] = theme_images[no_theme]
+        main_palette[margin:theme_images[no_theme].shape[0] + margin, image.shape[1] - theme_images[no_theme].shape[1] - margin - 20:image.shape[1] - margin - 20] = theme_images[no_theme]
 
+
+        main_palette = cv2_putText(main_palette,
+                text = "「テーマ」",
+                org = (image.shape[1] - theme_images[no_theme].shape[1] - margin - 30,50),
+                # fontFace = "/System/Library/Fonts/ヒラギノ角ゴシック W6.ttc",
+                fontFace = font_path_w6,
+                fontScale = 30,
+                color = (105,105,105))
+        
+        main_palette = cv2_putText(main_palette,
+                text = "next→",
+                org = (image.shape[1] - margin - 70,  theme_images[no_theme].shape[0] + 30),
+                fontFace = font_path,
+                fontScale = 20,
+                color = (105,105,105))
+        
+        main_palette = cv2_putText(main_palette,
+                text = "←prev",
+                org = (image.shape[1] - margin - 260,  theme_images[no_theme].shape[0] + 30),
+                fontFace = font_path,
+                fontScale = 20,
+                color = (105,105,105))
+
+        """
         cv.putText(main_palette,
-                text= "next",
-                org=(image.shape[1] - margin - 80,  theme_images[no_theme].shape[0] + margin),
-                fontFace=cv.FONT_HERSHEY_SIMPLEX,
-                fontScale=1.0,
-                color=(0, 255, 0),
-                thickness=2,
-                lineType=cv.LINE_AA)
+                text = "next",
+                org = (image.shape[1] - margin - 80,  theme_images[no_theme].shape[0] + margin),
+                fontFace = cv.FONT_HERSHEY_SIMPLEX,
+                fontScale = 1.0,
+                color = (0, 255, 0),
+                thickness = 2,
+                lineType = cv.LINE_AA)
         
         cv.putText(main_palette,
-                text= "prev",
-                org=(image.shape[1] - margin - 250,  theme_images[no_theme].shape[0] + margin),
-                fontFace=cv.FONT_HERSHEY_SIMPLEX,
-                fontScale=1.0,
-                color=(0, 255, 0),
-                thickness=2,
-                lineType=cv.LINE_AA)
+                text = "prev",
+                org = (image.shape[1] - margin - 250,  theme_images[no_theme].shape[0] + margin),
+                fontFace = cv.FONT_HERSHEY_SIMPLEX,
+                fontScale = 1.0,
+                color = (0, 255, 0),
+                thickness = 2,
+                lineType = cv.LINE_AA)
+        """
 
         # prev image
         default_shape = prev_default.shape
@@ -252,6 +336,54 @@ def main():
             else:
                 main_palette[(default_shape[0] + margin) * i + margin: (default_shape[0] + margin) * (i + 1), margin: default_shape[1] + margin] = prev_default
 
+        if(flag_push_key):
+            main_palette = cv2_putText(main_palette,
+                text = "ポーズをとって！",
+                org = (int(image.shape[1]/2) - 100,  prev_default.shape[0] + margin),
+                fontFace = font_path,
+                fontScale = 40,
+                color = (105,105,105))
+
+            
+            if time.time() - time_push_key13 < 5:
+                main_palette = cv2_putText(main_palette,
+                text = f'{5 - time.time() + time_push_key13:.1f}',
+                org = (int(image.shape[1]/2) ,  prev_default.shape[0] + margin + 50),
+                fontFace = font_path,
+                fontScale = 60,
+                color = (105,105,105))
+
+            else:
+                main_palette = cv2_putText(main_palette,
+                text = str(0),
+                org = (int(image.shape[1]/2) ,  prev_default.shape[0] + margin + 50),
+                fontFace = font_path,
+                fontScale = 60,
+                color = (105,105,105))
+            
+            if time.time() - time_push_key13 > 5:
+                save_pose_image(debug_image02,prev_images,no_theme,per_resize)
+                cv.imwrite("img/saved/"+str(int(time.time()))+".jpg",main_palette)
+                playsound("music/camera.mp3")
+                good_time = time.time()
+                flag_push_key = False
+                
+        else:
+            main_palette = cv2_putText(main_palette,
+                text = "R：カメラ撮影",
+                org = (int(image.shape[1]/2) - 100,  prev_default.shape[0] + margin),
+                fontFace = font_path,
+                fontScale = 40,
+                color = (105,105,105))
+
+            
+        if(good_time + 2 > time.time()):
+            main_palette[(default_shape[0] + margin) * 3 + margin: (default_shape[0] + margin) * 3 + margin + good_image.shape[0], margin: good_image.shape[1] + margin] = good_image
+
+
+        if key == 32: # SPACE
+            print("Press SPACE") 
+            cv.imwrite("img/saved/"+str(int(time.time()))+".jpg",main_palette)
 
         # 画面反映 #############################################################
         # cv.imshow('Tokyo2020 Debug', debug_image01)
@@ -261,9 +393,9 @@ def main():
     cap.release()
     cv.destroyAllWindows()
 
-def save_pose_image(debug_image02,prev_images,no_theme):
+def save_pose_image(debug_image02,prev_images,no_theme,per_resize):
     print("5 sec later") 
-    save_image = cv.resize(debug_image02,None,fx=0.20,fy=0.20)
+    save_image = cv.resize(debug_image02,None,fx=per_resize,fy=per_resize)
     save_image_edge = draw_white_edge(img=save_image, 
                                     band_width= 5, 
                                     color= [0, 0, 0])
@@ -273,6 +405,7 @@ def save_pose_image(debug_image02,prev_images,no_theme):
     else:
         prev_images[no_theme].pop(0)
         prev_images[no_theme].append(save_image_edge)
+    
 
 
 def draw_white_edge(img, band_width=10, color = [0, 0, 0]):
@@ -308,14 +441,15 @@ def cv2pil(imgCV):
     return imgPIL
 
 
-def cv2_putText(img, text, org, fontFace, fontScale, color):
+def cv2_putText(imgs, text, org, fontFace, fontScale, color):
     x, y = org
     b, g, r = color
     colorRGB = (r, g, b)
-    imgPIL = cv2pil(img)
+    imgPIL = cv2pil(imgs)
     draw = ImageDraw.Draw(imgPIL)
     fontPIL = ImageFont.truetype(font = fontFace, size = fontScale)
-    w, h = draw.textsize(text, font = fontPIL)
+    text_box = draw.textbbox((0, 0), text, font=fontPIL)
+    w, h = text_box[2] - text_box[0], text_box[3] - text_box[1]
     draw.text(xy = (x,y-h), text = text, fill = colorRGB, font = fontPIL)
     imgCV = pil2cv(imgPIL)
     return imgCV
@@ -699,6 +833,48 @@ def draw_landmarks(
             cv.line(image, landmark_point[30][1], landmark_point[32][1],
                     (0, 255, 0), 2)
     return image
+
+def predict_pose(
+        pose_landmarks,
+        landmark_names,
+        class_names,
+        col_names,
+        model,
+        torso_size_multiplier=2.5,
+        threshold=0.75):
+    lm_list = [landmarks for landmarks in pose_landmarks.landmark]
+    
+    center_x = (lm_list[landmark_names.index('right_hip')].x +
+                lm_list[landmark_names.index('left_hip')].x)*0.5
+    center_y = (lm_list[landmark_names.index('right_hip')].y +
+                lm_list[landmark_names.index('left_hip')].y)*0.5
+
+    shoulders_x = (lm_list[landmark_names.index('right_shoulder')].x +
+                    lm_list[landmark_names.index('left_shoulder')].x)*0.5
+    shoulders_y = (lm_list[landmark_names.index('right_shoulder')].y +
+                    lm_list[landmark_names.index('left_shoulder')].y)*0.5
+    
+    max_distance = max(
+        math.sqrt((lm.x - center_x)**2 + (lm.y - center_y)**2)
+        for lm in lm_list
+    )
+
+    torso_size = math.sqrt((shoulders_x - center_x) ** 2 + (shoulders_y - center_y)**2)
+    max_distance = max(torso_size*torso_size_multiplier, max_distance)
+
+    pre_lm = list(np.array([[(landmark.x-center_x)/max_distance, 
+                             (landmark.y-center_y)/max_distance,
+                             landmark.z/max_distance, landmark.visibility] 
+                             for landmark in lm_list]).flatten())
+
+    data = pd.DataFrame([pre_lm], columns=col_names)
+    predict = model.predict(data)[0]
+    if max(predict) > threshold:
+        pose_class = class_names[predict.argmax()]
+    else:
+        pose_class = 'Unknown Pose'
+
+    return pose_class
 
 if __name__ == '__main__':
     main()
