@@ -16,9 +16,10 @@ import cv2 as cv
 import numpy as np
 import mediapipe as mp
 from PIL import Image, ImageDraw, ImageFont
-from playsound import playsound
 
 from utils import CvFpsCalc
+
+POSEON = False
 
 
 def get_args():
@@ -50,10 +51,14 @@ def get_args():
 
 
 def main():
+    # テーマ切り替え
+    ###########################################################################
+    ch_time = 8
+
     # フォント
     ###########################################################################
     font_path = "font/hiragino-kaku-gothic-std-w8.otf"
-    font_path_w6 = "font/ヒラギノ角ゴ ProN W6.otf"
+    font_path_w6 = "font/ヒラギノ角ゴ ProN W6.otf"
 
     # ログ設定
     ###########################################################################
@@ -97,7 +102,7 @@ def main():
         min_tracking_confidence=min_tracking_confidence,
     )
 
-    CLmodel = load_model('model/model.h5', compile=True)
+    CLmodel = load_model('model/mlpose.h5', compile=True)
 
     landmark_names = [
         'nose',
@@ -117,7 +122,7 @@ def main():
         'left_heel', 'right_heel',
         'left_foot_index', 'right_foot_index',
     ]
-    class_names = ['Chair', 'Cobra', 'Dog', 'Tree', 'Warrior']
+    class_names = ["karate", "soccer", "volley", "fencing", "boxing", "run", "baseball", "lifting"]
     col_names = []
     for i in range(33):
         name = mp_pose.PoseLandmark(i).name
@@ -134,10 +139,14 @@ def main():
     #############################################################
     theme_images = []
     no_theme = 0
-    # theme_folder_path = 'F:\App\Pictogram\img\_pickle'
-    theme_folder_path = 'img/_pickle'
 
-    for filename in os.listdir(theme_folder_path):
+    theme_folder_path = 'img/_pickle_poses'
+    list_theme_path = os.listdir(theme_folder_path)
+    list_theme_path.sort()
+
+    list_theme_name = ["　　柔道　　","　サッカー　","バレーボール","フェンシング","ボクシング　","　短距離走　","　　野球　　","リフティング"]
+
+    for filename in list_theme_path:
         file_path = os.path.join(theme_folder_path, filename)
     
         with open(file_path, 'rb') as file:
@@ -145,44 +154,18 @@ def main():
             image_pk_edge = draw_white_edge(img=image_pk, 
                                     band_width= 5, 
                                     color= [0, 0, 0])
+            image_pk_edge = cv.resize(image_pk_edge,None,fx=0.6,fy=0.6)
             theme_images.append(image_pk_edge)
-
-    # ボタン画像読み込み
-    #############################################################
-    """
-    file_path_L = 'img/switch_pk/L.png.pickle'
-    with open(file_path_L, 'rb') as file:
-        btn_L_images = pickle.load(file)
-    file_path_left = 'img/switch_pk/left.png.pickle'
-    with open(file_path_left, 'rb') as file:
-        btn_left_images = pickle.load(file)
-    file_path_right = 'img/switch_pk/right.png.pickle'
-    with open(file_path_right, 'rb') as file:
-        btn_right_images = pickle.load(file)
-    """
     
     good_image = cv.imread("img/good.jpg")
     good_image = cv.resize(good_image,None,fx=0.45,fy=0.45)
-    good_time = 0
-    
-    # prev画像読み込み
-    #############################################################
-    # prev_default_path = r'F:\App\Pictogram\img\photo_no_image.jpg.pickle'
-    prev_default_path = r'img/photo_no_image.jpg.pickle'
 
-    per_resize = 0.15
-
-    with open(prev_default_path, 'rb') as file:
-        prev_default = pickle.load(file)
-    prev_default = cv.resize(prev_default,None,fx=per_resize,fy=per_resize)
-
-    prev_images = [[] * 3 for _ in range(len(theme_images))]
-
-    flag_push_key = False
-    
+    pose_image = cv.imread("img/poses/pose01.jpg")
+    pose_image = cv.resize(pose_image,None,fx=0.6,fy=0.6)
 
     # FPS計測モジュール ########################################################
     cvFpsCalc = CvFpsCalc(buffer_len=10)
+    tmp_time = time.time()
 
     # 色指定
     if rev_color:
@@ -210,6 +193,8 @@ def main():
 
         # 検出実施 #############################################################
         image = cv.cvtColor(image, cv.COLOR_BGR2RGB)
+        image[0:image.shape[0],0:300] = (122,122,0)
+        image[0:image.shape[0],image.shape[1]-300:image.shape[1]] = (122,122,0)
         results = pose.process(image)
 
         # 描画 ################################################################
@@ -225,20 +210,20 @@ def main():
                 color=color,
                 bg_color=bg_color,
             )
-            
-            predict_name = predict_pose(
-                results.pose_landmarks,
-                landmark_names,
-                class_names,
-                col_names,
-                model=CLmodel,
-                torso_size_multiplier=2.5,
-                threshold=0.75,
-            )
-            print(predict_name)
+
+            if POSEON:
+                predict_name = predict_pose(
+                    results.pose_landmarks,
+                    landmark_names,
+                    class_names,
+                    col_names,
+                    model=CLmodel,
+                    torso_size_multiplier=2.5,
+                    threshold=0.75,
+                )        
 
         main_palette = np.zeros((image.shape[0], image.shape[1], 3), np.uint8)
-        camera_palette = cv.resize(debug_image01,None,fx=0.20,fy=0.20)
+        camera_palette = cv.resize(debug_image01,None,fx=0.30,fy=0.30)
         
         cv.putText(debug_image02, 
                    text="FPS:" + str(display_fps), 
@@ -248,7 +233,7 @@ def main():
                    color=color, 
                    thickness=2, 
                    lineType=cv.LINE_AA)
-        
+
 
         # キー処理(ESC：終了) #################################################
         key = cv.waitKey(1)
@@ -258,18 +243,24 @@ def main():
         elif key == 113: # q
             print("Press q, no_theme:",no_theme)
             logging.debug("Press Q")
-            no_theme = (no_theme + 1) if no_theme < 49 else 0
+            no_theme = (no_theme + 1) if no_theme < 7 else 0
         elif key == 101: # e
             print("Press e, no_theme:",no_theme)
             logging.debug("Press E")
-            no_theme = (no_theme - 1) if no_theme > -49 else 0
-               
-        elif key == 13:  # ENTER
-            print("Press ENTER")
-            logging.debug("Press ENTER >> カメラ撮影")
-            time_push_key13 = time.time()
-            flag_push_key = True
-            
+            no_theme = (no_theme - 1) if no_theme > -7 else 0
+        elif key == 114: # r
+            print("Press r")
+            cv.imwrite('saves/'+str(int(time.time()))+'_'+str(no_theme)+'.jpg', cv.cvtColor(image, cv.COLOR_RGB2BGR))
+
+        
+        real_time = time.time()
+
+        if real_time - tmp_time > ch_time:
+            tmp_time = real_time
+            no_theme = (no_theme + 1) if no_theme < 7 else 0
+        
+        camera_palette[0:camera_palette.shape[0],0:90] = (255,255,255)
+        camera_palette[0:camera_palette.shape[0],camera_palette.shape[1]-90:camera_palette.shape[1]] = (255,255,255)
 
         # main画面合成 #########################################################
         main_palette[0:debug_image02.shape[0], 0:debug_image02.shape[1]] = debug_image02
@@ -277,109 +268,62 @@ def main():
         margin = 10
 
         # camera
-        main_palette[image.shape[0] - camera_palette.shape[0] - margin:image.shape[0] - margin, image.shape[1] - camera_palette.shape[1] - margin:image.shape[1] - margin] = camera_palette
+        main_palette[image.shape[0] - camera_palette.shape[0] - margin:image.shape[0] - margin, image.shape[1] - camera_palette.shape[1] + 70:image.shape[1] - 20] = camera_palette[0:camera_palette.shape[0],0:camera_palette.shape[1]-90]
         # theme
-        main_palette[margin:theme_images[no_theme].shape[0] + margin, image.shape[1] - theme_images[no_theme].shape[1] - margin - 20:image.shape[1] - margin - 20] = theme_images[no_theme]
+        main_palette[110:theme_images[no_theme].shape[0] + 110, image.shape[1] - theme_images[no_theme].shape[1] - margin - 20:image.shape[1] - margin - 20] = theme_images[no_theme]
 
-
+        
         main_palette = cv2_putText(main_palette,
                 text = "「テーマ」",
-                org = (image.shape[1] - theme_images[no_theme].shape[1] - margin - 30,50),
-                # fontFace = "/System/Library/Fonts/ヒラギノ角ゴシック W6.ttc",
+                org = (image.shape[1] - theme_images[no_theme].shape[1] - margin,50),
+                # fontFace = "/System/Library/Fonts/ヒラギノ角ゴシック W6.ttc",
                 fontFace = font_path_w6,
                 fontScale = 30,
                 color = (105,105,105))
         
         main_palette = cv2_putText(main_palette,
-                text = "next→",
-                org = (image.shape[1] - margin - 70,  theme_images[no_theme].shape[0] + 30),
-                fontFace = font_path,
-                fontScale = 20,
+                text = "「テーマ」のポーズをしてみよう！",
+                org = (image.shape[1]//2 - 280,90),
+                # fontFace = "/System/Library/Fonts/ヒラギノ角ゴシック W6.ttc",
+                fontFace = font_path_w6,
+                fontScale = 35,
+                color = (0, 100, 0))
+        
+        lf_time = round(ch_time - (round(time.time(),1) - tmp_time),1)
+        main_palette = cv2_putText(main_palette,
+                text = str(lf_time),
+                org = (image.shape[1]//2 - 50,image.shape[0]-100),
+                # fontFace = "/System/Library/Fonts/ヒラギノ角ゴシック W6.ttc",
+                fontFace = font_path_w6,
+                fontScale = 50,
                 color = (105,105,105))
+
         
         main_palette = cv2_putText(main_palette,
-                text = "←prev",
-                org = (image.shape[1] - margin - 260,  theme_images[no_theme].shape[0] + 30),
-                fontFace = font_path,
-                fontScale = 20,
+                text = list_theme_name[no_theme],
+                org = (image.shape[1] - theme_images[no_theme].shape[1] - 20,90),
+                # fontFace = "/System/Library/Fonts/ヒラギノ角ゴシック W6.ttc",
+                fontFace = font_path_w6,
+                fontScale = 30,
                 color = (105,105,105))
-
-        """
-        cv.putText(main_palette,
-                text = "next",
-                org = (image.shape[1] - margin - 80,  theme_images[no_theme].shape[0] + margin),
-                fontFace = cv.FONT_HERSHEY_SIMPLEX,
-                fontScale = 1.0,
-                color = (0, 255, 0),
-                thickness = 2,
-                lineType = cv.LINE_AA)
         
-        cv.putText(main_palette,
-                text = "prev",
-                org = (image.shape[1] - margin - 250,  theme_images[no_theme].shape[0] + margin),
-                fontFace = cv.FONT_HERSHEY_SIMPLEX,
-                fontScale = 1.0,
-                color = (0, 255, 0),
-                thickness = 2,
-                lineType = cv.LINE_AA)
-        """
-
-        # prev image
-        default_shape = prev_default.shape
+        if POSEON:
+            main_palette = cv2_putText(main_palette,
+                    text = predict_name,
+                    org = (50,50),
+                    # fontFace = "/System/Library/Fonts/ヒラギノ角ゴシック W6.ttc",
+                    fontFace = font_path_w6,
+                    fontScale = 30,
+                    color = (105,105,105))
         
-        for i in range(3):
-            if len(prev_images[no_theme]) > i:
-                image_shape = prev_images[no_theme][i].shape
-                main_palette[(image_shape[0] + margin) * i + margin: 
-                             (image_shape[0] + margin) * (i + 1), margin: 
-                             image_shape[1] + margin] = prev_images[no_theme][i]
-            else:
-                main_palette[(default_shape[0] + margin) * i + margin: (default_shape[0] + margin) * (i + 1), margin: default_shape[1] + margin] = prev_default
+        len_seek_bar = int((time.time() - tmp_time)*image.shape[1] // ch_time)
+        if len_seek_bar > image.shape[1]:
+            len_seek_bar = image.shape[1]
 
-        if(flag_push_key):
-            main_palette = cv2_putText(main_palette,
-                text = "ポーズをとって！",
-                org = (int(image.shape[1]/2) - 100,  prev_default.shape[0] + margin),
-                fontFace = font_path,
-                fontScale = 40,
-                color = (105,105,105))
+        
+        main_palette[image.shape[0]-8:image.shape[0],len_seek_bar:image.shape[1]] = (122,122,0)
 
-            
-            if time.time() - time_push_key13 < 5:
-                main_palette = cv2_putText(main_palette,
-                text = f'{5 - time.time() + time_push_key13:.1f}',
-                org = (int(image.shape[1]/2) ,  prev_default.shape[0] + margin + 50),
-                fontFace = font_path,
-                fontScale = 60,
-                color = (105,105,105))
-
-            else:
-                main_palette = cv2_putText(main_palette,
-                text = str(0),
-                org = (int(image.shape[1]/2) ,  prev_default.shape[0] + margin + 50),
-                fontFace = font_path,
-                fontScale = 60,
-                color = (105,105,105))
-            
-            if time.time() - time_push_key13 > 5:
-                save_pose_image(debug_image02,prev_images,no_theme,per_resize)
-                cv.imwrite("img/saved/"+str(int(time.time()))+".jpg",main_palette)
-                playsound("music/camera.mp3")
-                good_time = time.time()
-                flag_push_key = False
-                
-        else:
-            main_palette = cv2_putText(main_palette,
-                text = "R：カメラ撮影",
-                org = (int(image.shape[1]/2) - 100,  prev_default.shape[0] + margin),
-                fontFace = font_path,
-                fontScale = 40,
-                color = (105,105,105))
-
-            
-        if(good_time + 2 > time.time()):
-            main_palette[(default_shape[0] + margin) * 3 + margin: (default_shape[0] + margin) * 3 + margin + good_image.shape[0], margin: good_image.shape[1] + margin] = good_image
-
+        # main_palette[margin:pose_image.shape[0] + margin, image.shape[1] - pose_image.shape[1] - margin - 20:image.shape[1] - margin - 20] = pose_image
 
         if key == 32: # SPACE
             print("Press SPACE") 
@@ -612,6 +556,7 @@ def draw_landmarks(
     landmark_point = []
 
     for index, landmark in enumerate(landmarks.landmark):
+        # print(landmark.z)
         landmark_x = min(int(landmark.x * image_width), image_width - 1)
         landmark_y = min(int(landmark.y * image_height), image_height - 1)
         landmark_z = landmark.z
